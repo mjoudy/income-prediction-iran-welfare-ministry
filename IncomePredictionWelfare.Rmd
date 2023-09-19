@@ -1,0 +1,248 @@
+---
+title: "Income Prediction Ministry of Social Affairs Data"
+author: "Mohammad Joudy"
+date: "April 9, 2018"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Main Problem
+
+Iranian welfare center is a set of information about all of iranians which is gathered by Ministry of Labour and Social affairs in order to giving policies of the field of prosperity and other fields. This dataset is constituted from a vast spectrum of information of demographic, income, insurance, wealth and assets. 
+
+Our dataset is a two percent sample of this huge dataset which is available in web site of ministry.
+
+Our ultimate goal is to have a geographical and age distribution of poverty. for this purpose, we consider income of households as main feature (which would be predicted).but the problem is because of incompeleteness of this variable.
+
+## Workflow
+
+```{r libraries, echo=TRUE, results='hide', warning=FALSE, message=FALSE, cache=TRUE}
+
+#rm(list = ls())
+
+library(dplyr)
+library(tidyr)
+library(caret)
+library(rpart)
+library(DMwR)
+library(ggplot2)
+library(ggthemes)
+
+set.seed(13385)
+```
+
+```{r getting data, cache=TRUE}
+
+dataURL <- "https://www.mcls.gov.ir/icm_content/media/filepool3/2017/8/7164.rar"
+
+Sys.setlocale(locale = "persian")
+
+data <- read.csv("./refahdata500000-960331.csv", header = TRUE, sep = ";")
+```
+
+##Looking at Data
+As we can see the dataset are comprised from 57 variables and 500,000 rows.
+```{r}
+str(data)
+```
+first of all we look at number NAs in variables. For this purpose we build a function naCountFunc.
+```{r, cache=TRUE}
+naCountFunc <- function(x) sum(is.na(x))
+nac <- sapply(data, naCountFunc)
+as.data.frame(nac)
+```
+So, a considerable amount of two variables named FOROSH_MAX_9504 and FEE_MAX_9504 are NAs which this is a reasonable to omit them as below.
+```{r, cache=TRUE}
+data <- select(data, -FOROSH_MAX_9504, -FEE_MAX_9504)
+compCase <- sum(complete.cases(data))
+```
+now its time to split the dataset by variable of income and demography, respectively 45 and 11 columns and looking at their NAs
+```{r, cache=TRUE}
+daramad <- select(data, -c(2:9), -BIMEH_SALAMAT, -BIMEH_ROOSTAEIAN)
+demography <- select(data, c(1:9), BIMEH_SALAMAT, BIMEH_ROOSTAEIAN)
+nacDemo <- sapply(demography, naCountFunc)
+as.data.frame(nacDemo)
+nacD <- sapply(daramad, naCountFunc)
+as.data.frame(nacD)
+```
+in "daramad" dataset we have different types of variables with NAs. Based on size of NAs we threat them in different ways. First, we replace NAs in varibles which their NAs are in order of 100, with their median. 
+
+```{r, cache=TRUE}
+daramad$MASKOONI_KHARID_PRICE[is.na(daramad$MASKOONI_KHARID_PRICE)] <- median(daramad$MASKOONI_KHARID_PRICE, na.rm = TRUE)
+daramad$MASKOONI_FOROOSH_PRICE[is.na(daramad$MASKOONI_FOROOSH_PRICE)] <- median(daramad$MASKOONI_FOROOSH_PRICE, na.rm = TRUE)
+daramad$DALIL_MODIR_BANKI[is.na(daramad$DALIL_MODIR_BANKI)] <- median(daramad$DALIL_MODIR_BANKI, na.rm = TRUE)
+daramad$DALIL_ASNAF_MONTAKHAB[is.na(daramad$DALIL_ASNAF_MONTAKHAB)] <- median(daramad$DALIL_ASNAF_MONTAKHAB, na.rm = TRUE)
+```
+So, for variables with higher number of NAs, we apply regression trees in order to estimate them.
+
+```{r, cache=TRUE}
+modelEbrazi <- rpart(MLT_DARAMAD_EBRAZI ~ . -MLT_DARAMAD_TASHKHISI-MLT_DARAMAD_GHATEI
+                     -MLT_MALIAT_TASHKHISI-MLT_MALIAT_GHATE, 
+                      data = daramad[!is.na(daramad$MLT_DARAMAD_EBRAZI), ], 
+                      method = "anova", na.action = na.omit)
+predictEbrazi <- predict(modelEbrazi, daramad[is.na(daramad$MLT_DARAMAD_EBRAZI), ])
+daramad$MLT_DARAMAD_EBRAZI[is.na(daramad$MLT_DARAMAD_EBRAZI)] <- predictEbrazi
+#---------------------------------------------------------------------------------------
+modelTashkhisi <- rpart(MLT_DARAMAD_TASHKHISI ~ . -MLT_DARAMAD_GHATEI
+                     -MLT_MALIAT_TASHKHISI-MLT_MALIAT_GHATE, 
+                     data = daramad[!is.na(daramad$MLT_DARAMAD_TASHKHISI), ], 
+                     method = "anova", na.action = na.omit)
+predictTashkhisi <- predict(modelTashkhisi, daramad[is.na(daramad$MLT_DARAMAD_TASHKHISI), ])
+daramad$MLT_DARAMAD_TASHKHISI[is.na(daramad$MLT_DARAMAD_TASHKHISI)] <- predictTashkhisi
+#---------------------------------------------------------------------------------------
+modelGhatei <- rpart(MLT_DARAMAD_GHATEI ~ . -MLT_MALIAT_TASHKHISI-MLT_MALIAT_GHATE, 
+                        data = daramad[!is.na(daramad$MLT_DARAMAD_GHATEI), ], 
+                        method = "anova", na.action = na.omit)
+predictGhatei <- predict(modelGhatei, daramad[is.na(daramad$MLT_DARAMAD_GHATEI), ])
+daramad$MLT_DARAMAD_GHATEI[is.na(daramad$MLT_DARAMAD_GHATEI)] <- predictGhatei
+#---------------------------------------------------------------------------------------
+modelMaliatT <- rpart(MLT_MALIAT_TASHKHISI ~ . -MLT_MALIAT_GHATE, 
+                     data = daramad[!is.na(daramad$MLT_MALIAT_TASHKHISI), ], 
+                     method = "anova", na.action = na.omit)
+predictMaliatT <- predict(modelMaliatT, daramad[is.na(daramad$MLT_MALIAT_TASHKHISI), ])
+daramad$MLT_MALIAT_TASHKHISI[is.na(daramad$MLT_MALIAT_TASHKHISI)] <- predictMaliatT
+#---------------------------------------------------------------------------------------
+modelMaliatG <- rpart(MLT_MALIAT_GHATE ~ ., 
+                      data = daramad[!is.na(daramad$MLT_MALIAT_GHATE), ], 
+                      method = "anova", na.action = na.omit)
+predictMaliatG <- predict(modelMaliatG, daramad[is.na(daramad$MLT_MALIAT_GHATE), ])
+daramad$MLT_MALIAT_GHATE[is.na(daramad$MLT_MALIAT_GHATE)] <- predictMaliatG
+```
+
+At the end, we compelete the dataset with Kth nearest neighbour imputation.
+
+```{r, cache=TRUE}
+daramad <- knnImputation(daramad)
+```
+Now, its time to do some little exploratory analysis. looking at distribution of our main variable shed light on important information.
+
+```{r, cache=TRUE}
+par(mar = rep(2,4))
+boxplot(daramad$DARAMADAZHOGHOGH9504_SARPARAST)
+plot(daramad$DARAMADAZHOGHOGH9504_SARPARAST)
+hist(daramad$DARAMADAZHOGHOGH9504_SARPARAST, 100)
+```
+
+This graphs explicitly show outliers. So we remove them as follows.
+
+```{r, cache=TRUE}
+daramad <- filter(daramad, DARAMADAZHOGHOGH9504_SARPARAST < 5e+7)
+```
+
+After removing outliers this distributions are as follows.
+
+```{r, cache=TRUE}
+par(mar = rep(2,4))
+boxplot(daramad$DARAMADAZHOGHOGH9504_SARPARAST)
+plot(daramad$DARAMADAZHOGHOGH9504_SARPARAST)
+hist(daramad$DARAMADAZHOGHOGH9504_SARPARAST, 100)
+```
+
+Now, a little feature engnineering. All of the variations of the "daramad" dataset are captured by 7 variables.
+
+```{r, cache=TRUE}
+prVar <- sapply(daramad, var)
+# principalcomp <- prcomp(training)
+# stdDev <- principalcomp$sdev
+#prVar <- stdDev^2
+propVarex <- prVar/sum(prVar)
+plot(propVarex, xlab = "Principal Component",
+     ylab = "Proportion of Variance Explained",
+     type = "b")
+plot(cumsum(propVarex), xlab = "Principal Component",
+     ylab = "Cumulative Proportion of Variance Explained",
+     type = "b")
+
+nzv <- nearZeroVar(daramad, saveMetrics = TRUE)
+daramadNZV<- select(daramad, which(nzv$nzv == FALSE))
+dim(daramadNZV)
+```
+Now, out dataset is ready for Machine Learning. Trainnig set are inputs with nonzero "DARAMADAZHOGHOGH9504_SARPARAST". So, we are going to predict rows with zero in "DARAMADAZHOGHOGH9504_SARPARAST". After partitioning training data, we look at distribution of incomes.
+
+```{r, cache=TRUE}
+forPrediction <- filter(daramadNZV, DARAMADAZHOGHOGH9504_SARPARAST == 0)
+forTrain <- filter(daramadNZV, DARAMADAZHOGHOGH9504_SARPARAST != 0)
+
+inTrain <- createDataPartition(forTrain$DARAMADAZHOGHOGH9504_SARPARAST, p = .7, list = FALSE)
+training <- forTrain[inTrain, ]
+testing <- forTrain[-inTrain, ]
+
+hist(forTrain$DARAMADAZHOGHOGH9504_SARPARAST, 100)
+boxplot(forTrain$DARAMADAZHOGHOGH9504_SARPARAST)
+```
+
+trainnig, testing, prediction
+
+```{r message=FALSE, warning=FALSE, cache=TRUE, results='hide'}
+modelGbm <- train(DARAMADAZHOGHOGH9504_SARPARAST ~ .-familycode , data = training,
+                  method = "gbm")
+testGbm <- predict(modelGbm, newdata = testing)
+#confMxGbm <- confusionMatrix(testGbm, testing$DARAMADAZHOGHOGH9504_SARPARAST)
+predictGbm <- predict(modelGbm, newdata = forPrediction)
+
+daramad$DARAMADAZHOGHOGH9504_SARPARAST[daramad$DARAMADAZHOGHOGH9504_SARPARAST == 0] <- predictGbm
+```
+In order to cleannig demoghraphy dataset, first we look at its NAs and columns which are not eligible to have zeros and replace them with modes of that variables.
+```{r cache=TRUE}
+nacDemo <- sapply(demography, naCountFunc)
+as.data.frame(nacDemo)
+
+length(which(demography$BIRTH_YEAR == 0))
+length(which(demography$OSTAN_NAME == 0))
+
+demography$HEAD_SEX[is.na(demography$HEAD_SEX)] <- mode(demography$HEAD_SEX)
+demography$BIRTH_YEAR[is.na(demography$BIRTH_YEAR)] <- mode(demography$BIRTH_YEAR)
+
+#demography$BIRTH_YEAR[demography$BIRTH_YEAR == "numeric"] <- modeFunc(demography$BIRTH_YEAR)
+
+modeFunc <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+levels(factor(demography$BIRTH_YEAR))
+demography$BIRTH_YEAR[demography$BIRTH_YEAR == 0] <- modeFunc(demography$BIRTH_YEAR)
+
+levels(factor(demography$OSTAN_NAME))
+demography$OSTAN_NAME[demography$OSTAN_NAME == 0 | demography$OSTAN_NAME == ""] <- modeFunc(demography$OSTAN_NAME)
+
+```
+So, after merging two datasets we would split households two ten deciles which its first three deciles are poor households.
+
+```{r cache=TRUE}
+trainedData <- merge(demography, daramad)
+trainedData <- mutate(trainedData, daramadDecile = ntile(DARAMADAZHOGHOGH9504_SARPARAST, 10))
+trainedData <- mutate(trainedData, poor = ifelse(daramadDecile > 3, 0, 1))
+
+str(trainedData)
+trainedData$poor <- factor(trainedData$poor)
+```
+
+Here are some codes for plotting (first part) and saving plot (second part).
+
+```{r fig.height=15, fig.width=10, message=FALSE, warning=FALSE, cache=TRUE}
+daramadSen <- ggplot(trainedData, aes(x = BIRTH_YEAR, y = "count", fill = poor ))
+daramadSen + geom_bar(stat = "identity") + 
+  coord_flip() +
+  labs(title = "poverty dist. based on supervisers birth year", y = "Number of families")
+```
+
+```{r fig.height=12, fig.width=10, message=FALSE, warning=FALSE, cache=TRUE}
+daramadOstani <- ggplot(trainedData, aes(x = OSTAN_NAME, y = "count", fill = poor))
+daramadOstani + geom_bar(stat = "identity") + coord_flip() +
+  labs(title = "poverty dist. based on supervisers birth year", y = "Number of families")
+
+```
+
+
+```{r fig.height=10, fig.width=20, message=FALSE, warning=FALSE, cache=TRUE}
+daramadOstaniBox <- ggplot(trainedData, aes(x = OSTAN_NAME, y = DARAMADAZHOGHOGH9504_SARPARAST))
+daramadOstaniBox + geom_boxplot() + ylim(0, 2e+07)
+
+```

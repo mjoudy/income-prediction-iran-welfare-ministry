@@ -1,0 +1,59 @@
+---
+title: "Income Prediction Ministry of Social Affairs Data"
+author: "Mohammad Joudy"
+date: "April 9, 2018"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Main Problem
+
+Iranian welfare center is a set of information about all of iranians which is gathered by Ministry of Labour and Social affairs in order to giving policies of the field of prosperity and other fields. This dataset is constituted from a vast spectrum of information of demographic, income, insurance, wealth and assets. 
+
+Our dataset is a two percent sample of this huge dataset which is available in web site of ministry.
+
+Our ultimate goal is to have a geographical and age distribution of poverty. for this purpose, we consider income of households as main feature (which would be predicted).but the problem is because of incompeleteness of this variable.
+
+## Workflow
+
+```{r libraries, echo=TRUE, results='hide', warning=FALSE, message=FALSE}
+
+rm(list = ls())
+
+library(dplyr)
+library(tidyr)
+library(caret)
+library(rpart)
+library(DMwR)
+library(ggplot2)
+library(ggthemes)
+
+set.seed(13385)
+```
+
+```{r getting data}
+
+dataURL <- "https://www.mcls.gov.ir/icm_content/media/filepool3/2017/8/7164.rar"
+
+Sys.setlocale(locale = "persian")
+
+data <- read.csv("./refahdata500000-960331.csv", header = TRUE, sep = ";")
+```
+
+##Looking at Data
+
+```{r}
+str(data)
+```
+first of all we look at number NAs in variables. For this purpose we build a function naCountFunc.
+```{r}
+naCountFunc <- function(x) sum(is.na(x))
+nac <- sapply(data, naCountFunc)
+as.data.frame(nac)
+```
+
